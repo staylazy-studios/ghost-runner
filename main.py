@@ -7,25 +7,35 @@ window-title Ghost Runner
 show-frame-rate-meter 1
 textures-power-2 none
 #fullscreen true
+#framebuffer-srgb 1
 """
 
 loadPrcFileData("", conf)
 
 from panda3d.core import WindowProperties, ModifierButtons, \
-    PointLight, \
+    PointLight, AmbientLight, \
     CollisionTraverser, CollisionHandlerQueue, CollisionHandlerPusher, CollisionNode, CollisionPolygon, CollisionRay, CollisionSphere, CollideMask, \
     GeomVertexFormat, NodePath, Point3
-
+from panda3d.ai import AIWorld, AICharacter
 from direct.showbase.ShowBase import ShowBase
+from direct.filter.CommonFilters import CommonFilters
 from direct.actor.Actor import Actor
 from base_objects import *
 import GlobalInstance
 from random import choice
 import sys
 
+
+# Controls are:
+# Move around - wasd
+# Look around - with the goddamn mouse
+# Turn flash light on - right click
+# red dude is the enemy
+
+
 pipeline_path = "/home/joey/dev/panda_3d/RenderPipeline/"
 sys.path.insert(0, pipeline_path)
-#from rpcore import RenderPipeline, PointLight
+from rpcore import RenderPipeline, PointLight, SpotLight
 import simplepbr
 
 PLAYER_SPEED = 4
@@ -33,16 +43,22 @@ CAMERA_HEIGHT = 3
 
 class Game(ShowBase):
     def __init__(self):
-        super().__init__()
-        '''# ----- Begin of render pipeline code -----
+        #super().__init__()
+        # ----- Begin of render pipeline code -----
         self.render_pipeline = RenderPipeline()
         self.render_pipeline.create(self)
 
-        self.render_pipeline.daytime_mgr.time = "7:40"
+        self.render_pipeline.daytime_mgr.time = "20:40"
         # ----- End of render pipeline code -----'''
         
+        # testing filters
+        #filters = CommonFilters(self.win, self.cam)
+        #filters.setAmbientOcclusion(32, 0.1, 1, 0.01)
+
+        
         self.disableMouse()
-        self.pipeline = simplepbr.init()
+        #self.pipeline = simplepbr.init()
+        #self.render.setShaderAuto()
         #self.oobe()
 
         GlobalInstance.GameObject['base'] = self
@@ -52,6 +68,33 @@ class Game(ShowBase):
         self.map.reparentTo(self.render)
         self.showMesh(self.map)
         #self.render_pipeline.prepare_scene(self.map)
+        lightPos = self.map.find("**/LightPos*").getPos()
+
+        slight = SpotLight()
+        slight.pos = lightPos
+        slight.fov = 60
+        slight.energy = 1000
+        slight.casts_shadows = True
+        slight.shadow_map_resolution = 512
+        slight.near_plane = 0.2
+        slight.set_color_from_temperature(4000)
+        #slight.look_at(0, 0, 0)
+        self.render_pipeline.add_light(slight)
+
+        self.camSlight = SpotLight()
+        #self.camSlight.pos = self.camera.getPos()
+        self.camSlight.fov = 50
+        self.camSlight.radius = 25
+        self.camSlight.energy = 50
+        self.camSlight.casts_shadows = True
+        self.camSlight.shadow_map_resolution = 512
+        self.camSlight.near_plane = 0.2
+        #self.camSlight.look_at(self.camera.getQuat().getForward())
+
+        self.camSlightFloater = NodePath("camSlightFloater")
+        self.camSlightFloater.setPos(0, 5, 0)
+        self.camSlightFloater.reparentTo(self.camera)
+        
 
         startPos = self.map.find("**/StartPos").getPos()
 
@@ -81,21 +124,38 @@ class Game(ShowBase):
         self.fastStompingNoise.setLoop(True)
 
 
-        plight = PointLight("plight")
+        '''plight = PointLight("plight")
+        plight.setShadowCaster(True, 512, 512)
         plnp = self.render.attachNewNode(plight)
-        plnp.setPos(5, -5, 18)
-        self.render.setLight(plnp)
+        plnp.setPos(5, -5, 8)
+        self.render.setLight(plnp)'''
+        alight = AmbientLight("alight")
+        alight.setColor((.1, .1, .1, 1))
+        alnp = self.render.attachNewNode(alight)
+        self.render.setLight(alnp)
         '''# render pipeline light
         my_light = PointLight()
-        my_light.pos = (5, -20, 15)
-        my_light.radius = 1
-        my_light.inner_radius = 2
+        my_light.pos = (5, -5, 5)
+        #my_light.radius = 1
+        #my_light.inner_radius = 2
         my_light.color = (0.2, 0.6, 1.0)
         my_light.energy = 1000.0
         my_light.casts_shadows = True
         my_light.shadow_map_resolution = 512
         my_light.near_plane = 0.2
         self.render_pipeline.add_light(my_light)'''
+
+        # panda3d AI
+        self.AIworld = AIWorld(self.render)
+
+        #self.AIchar = AICharacter("seeker", self.enemy, 100, 0.05, 5)
+        self.AIchar = AICharacter("pursuer", self.enemy, 100, 0.05, 5)
+        self.AIworld.addAiChar(self.AIchar)
+        self.AIbehaviors = self.AIchar.getAiBehaviors()
+
+        self.AIbehaviors.pursue(self.camModel)
+
+        # panda3d AI
 
 
         self.mouseWatcherNode.set_modifier_buttons(ModifierButtons())
@@ -114,6 +174,7 @@ class Game(ShowBase):
 
         self.accept("f11", self.toggleFullscreen)
         self.accept("mouse1", self.mouseClick)
+        self.accept("mouse3", self.toggleCamSlight)
         self.accept("escape", sys.exit)
 
 
@@ -162,6 +223,7 @@ class Game(ShowBase):
         self.inGame = False
         self.isGameOver = False
         self.fullscreen = False
+        self.flashOn = False
         self.lastMouseX, self.lastMouseY = None, None
         self.rotateH, self.rotateP = 0, 0
         self.pitchMax, self.pitchMin = 40, -90
@@ -186,6 +248,11 @@ class Game(ShowBase):
         dt = self.taskMgr.globalClock.getDt()
 
         self.movement()
+
+        self.camSlight.setPos(self.camera.getPos(self.render))
+        self.camSlight.look_at(self.camSlightFloater.getPos(self.render))
+
+        self.AIworld.update()
         
         return task.cont
     
@@ -280,6 +347,14 @@ class Game(ShowBase):
     # Records the state of the wasd keys
     def setKey(self, key, value):
         self.keyMap[key] = value
+    
+    def toggleCamSlight(self):
+        self.flashOn = not self.flashOn
+
+        if self.flashOn:
+            self.render_pipeline.add_light(self.camSlight)
+        else:
+            self.render_pipeline.remove_light(self.camSlight)
     
     # Toggles fullscreen
     def toggleFullscreen(self):
