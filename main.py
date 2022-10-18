@@ -18,10 +18,10 @@ from panda3d.core import WindowProperties, ModifierButtons, \
     GeomVertexFormat, NodePath, Point3
 from panda3d.ai import AIWorld, AICharacter
 from direct.showbase.ShowBase import ShowBase
-from direct.filter.CommonFilters import CommonFilters
 from direct.actor.Actor import Actor
 from base_objects import *
 import GlobalInstance
+from wezupath import NavGraph, PathFollower
 from random import choice
 import sys
 
@@ -38,7 +38,7 @@ sys.path.insert(0, pipeline_path)
 from rpcore import RenderPipeline, PointLight, SpotLight
 import simplepbr
 
-PLAYER_SPEED = 4
+PLAYER_SPEED = 20
 CAMERA_HEIGHT = 3
 
 class Game(ShowBase):
@@ -48,7 +48,8 @@ class Game(ShowBase):
         self.render_pipeline = RenderPipeline()
         self.render_pipeline.create(self)
 
-        self.render_pipeline.daytime_mgr.time = "20:40"
+        #self.render_pipeline.daytime_mgr.time = "20:40"
+        self.render_pipeline.daytime_mgr.time = "7:40"
         # ----- End of render pipeline code -----'''
         
         # testing filters
@@ -59,7 +60,7 @@ class Game(ShowBase):
         self.disableMouse()
         #self.pipeline = simplepbr.init()
         #self.render.setShaderAuto()
-        #self.oobe()
+        self.oobeCull()
 
         GlobalInstance.GameObject['base'] = self
 
@@ -69,6 +70,13 @@ class Game(ShowBase):
         self.showMesh(self.map)
         #self.render_pipeline.prepare_scene(self.map)
         lightPos = self.map.find("**/LightPos*").getPos()
+
+        #self.plane = self.loader.loadModel("assets/mesh.egg")
+        #self.plane.reparentTo(self.render)
+        self.navigationMesh = self.map.find("**/NavigationMesh")
+        self.navigationMesh.hide()
+        self.navigationMesh.detachNode()
+        self.navigationGraph = NavGraph(self.navigationMesh)
 
         slight = SpotLight()
         slight.pos = lightPos
@@ -117,6 +125,9 @@ class Game(ShowBase):
         self.enemyStartPos = [model.getPos() for model in self.map.findAllMatches("**/EnemyPos*")]
         self.enemy.setPos(choice(self.enemyStartPos))
 
+        self.pathfinder = PathFollower(self.enemy)
+
+
         self.tiredNoise = self.loader.loadSfx("assets/tired.ogg")
         self.stompingNoise = self.loader.loadSfx("assets/stomping.ogg")
         self.stompingNoise.setLoop(True)
@@ -145,17 +156,21 @@ class Game(ShowBase):
         my_light.near_plane = 0.2
         self.render_pipeline.add_light(my_light)'''
 
-        # panda3d AI
+        '''# panda3d AI
         self.AIworld = AIWorld(self.render)
 
         #self.AIchar = AICharacter("seeker", self.enemy, 100, 0.05, 5)
         self.AIchar = AICharacter("pursuer", self.enemy, 100, 0.05, 5)
         self.AIworld.addAiChar(self.AIchar)
         self.AIbehaviors = self.AIchar.getAiBehaviors()
+        #self.AIbehaviors.obstacleAvoidance(0.02)
+        #self.AIworld.addObstacle(self.map)
+        self.AIbehaviors.initPathFind("assets/navmesh.csv")
+        self.AIbehaviors.pathFindTo(self.camModel, 'addPath')
 
-        self.AIbehaviors.pursue(self.camModel)
+        #self.AIbehaviors.pursue(self.camModel)
 
-        # panda3d AI
+        # panda3d AI'''
 
 
         self.mouseWatcherNode.set_modifier_buttons(ModifierButtons())
@@ -191,11 +206,24 @@ class Game(ShowBase):
         self.camCol.setFromCollideMask(CollideMask.bit(0))
         self.camCol.setIntoCollideMask(CollideMask.allOff())
         self.camColNp = self.camModel.attachNewNode(self.camCol)
-        self.camPusher = CollisionHandlerPusher()
-        self.camPusher.horizontal = True
 
-        self.camPusher.addCollider(self.camColNp, self.camModel)
-        self.cTrav.addCollider(self.camColNp, self.camPusher)
+        '''self.enemyCol = CollisionNode('enemy')
+        self.enemyCol.addSolid(CollisionSphere(center=(0, 0, 0), radius=1))
+        self.enemyCol.setFromCollideMask(CollideMask.allOff())
+        self.enemyCol.setIntoCollideMask(CollideMask.bit(1))
+        #self.enemyColNp = self.enemy.attachNewNode(self.enemyCol)'''
+        
+        self.pusher = CollisionHandlerPusher()
+        self.pusher.horizontal = True
+
+        self.pusher.addCollider(self.camColNp, self.camModel)
+        #self.pusher.addCollider(self.enemyColNp, self.enemy)
+        self.cTrav.addCollider(self.camColNp, self.pusher)
+        #self.cTrav.addCollider(self.enemyColNp, self.pusher)
+        '''self.enemyCol = CollisionNode('enemy')
+        self.enemyColNp = self.enemy.attachNewNode(self.enemyCol)
+        self.enemyColHandler = CollisionHandlerQueue()
+        self.cTrav.addCollider(self.enemyColNp, self.enemyColHandler)'''
 
         self.groundRay = CollisionRay()
         self.groundRay.setOrigin(0, 0, 9)
@@ -231,6 +259,8 @@ class Game(ShowBase):
         self.isMoving = False
         self.isRunning = False
         self.tired = False
+        self.old_pos = self.camModel.getPos()
+        self.pathfinder.move_speed = 8
         self.runTimer = Timer(5)
         self.runTimer.pause()
         self.tiredTimer = Timer(5)
@@ -243,6 +273,12 @@ class Game(ShowBase):
         }
 
         self.taskMgr.add(self.update, "update")
+        #self.taskMgr.doMethodLater(5, self.pathfinderUpdate, "pathfinderUpdate")
+    
+    def goto(self, pos):
+        self.pathfinder.follow_path(
+            self.navigationGraph.find_path(self.enemy.getPos(), pos)
+        )
 
     def update(self, task):
         dt = self.taskMgr.globalClock.getDt()
@@ -252,10 +288,34 @@ class Game(ShowBase):
         self.camSlight.setPos(self.camera.getPos(self.render))
         self.camSlight.look_at(self.camSlightFloater.getPos(self.render))
 
-        self.AIworld.update()
+        #self.enemy.setZ(0)
+        #self.enemy.setHpr(0, 0, 0)
+        self.pathfinderUpdate()
+        self.pathfinder._update()
+        self.enemy.setZ(0)
+        #self.AIworld.update()
+
+        print(self.cam.node().isInView(self.enemy.getPos()))
         
         return task.cont
     
+    def pathfinderUpdate(self):
+        '''#if self.camModel.getPos() != self.old_pos:
+        if self.pathfinder.seq.is_playing():
+            if self.enemyTiredTimer.timeIsUp():
+                self.enemyTired = True
+        else:
+            if not self.enemyTired:
+                self.goto(self.camModel.getPos())
+                self.enemyTiredTimer.reset()'''
+        
+        try:
+            if not self.pathfinder.seq.isPlaying():
+                self.goto(self.camera.getPos(self.render))
+        except:
+            pass
+    
+    # player movement
     def movement(self):
         dt = self.taskMgr.globalClock.getDt()
 
@@ -339,6 +399,7 @@ class Game(ShowBase):
         
         entries = list(self.groundHandler.entries)
         entries.sort(key=lambda x: x.getSurfacePoint(self.render).getZ())
+        #print(self.enemyColHandler.entries)
         
         for entry in entries:
             if entry.getIntoNode().name == 'Terrain':
