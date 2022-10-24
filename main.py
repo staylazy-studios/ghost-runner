@@ -19,6 +19,7 @@ from panda3d.core import WindowProperties, ModifierButtons, \
 from panda3d.ai import AIWorld, AICharacter
 from direct.showbase.ShowBase import ShowBase
 from direct.actor.Actor import Actor
+from direct.showbase import Audio3DManager
 from base_objects import *
 import GlobalInstance
 from wezupath import NavGraph, PathFollower
@@ -38,7 +39,8 @@ sys.path.insert(0, pipeline_path)
 from rpcore import RenderPipeline, PointLight, SpotLight
 import simplepbr
 
-PLAYER_SPEED = 20
+PLAYER_SPEED = 4
+ENEMY_SPEED = 4
 CAMERA_HEIGHT = 3
 
 class Game(ShowBase):
@@ -48,8 +50,8 @@ class Game(ShowBase):
         self.render_pipeline = RenderPipeline()
         self.render_pipeline.create(self)
 
-        #self.render_pipeline.daytime_mgr.time = "20:40"
-        self.render_pipeline.daytime_mgr.time = "7:40"
+        self.render_pipeline.daytime_mgr.time = "20:40"
+        #self.render_pipeline.daytime_mgr.time = "7:40"
         # ----- End of render pipeline code -----'''
         
         # testing filters
@@ -60,12 +62,12 @@ class Game(ShowBase):
         self.disableMouse()
         #self.pipeline = simplepbr.init()
         #self.render.setShaderAuto()
-        self.oobeCull()
+        #self.oobeCull()
 
         GlobalInstance.GameObject['base'] = self
 
         # Load files
-        self.map = self.loader.loadModel("assets/map.bam")
+        self.map = self.loader.loadModel("assets/models/map.bam")
         self.map.reparentTo(self.render)
         self.showMesh(self.map)
         #self.render_pipeline.prepare_scene(self.map)
@@ -102,12 +104,21 @@ class Game(ShowBase):
         self.camSlightFloater = NodePath("camSlightFloater")
         self.camSlightFloater.setPos(0, 5, 0)
         self.camSlightFloater.reparentTo(self.camera)
+
+        self.nearLight = PointLight()
+        self.nearLight.energy = 0.1
+        self.render_pipeline.add_light(self.nearLight)
+
+        # this is for the bug where remove_light removes the passed light and the last light that was instantiated
+        _plight = PointLight()
+        _plight.energy = 0.1
+        self.render_pipeline.add_light(_plight)
         
 
         startPos = self.map.find("**/StartPos").getPos()
 
         # camModel is only used for camera animation. Use self.camera for camera manipulation
-        self.camAnim = Actor("assets/camera.glb")
+        self.camAnim = Actor("assets/models/camera.glb")
         self.camAnim.reparentTo(self.render)
         joint = self.camAnim.exposeJoint(None, "modelRoot", "CameraBone")
         self.camera.reparentTo(joint)
@@ -118,7 +129,7 @@ class Game(ShowBase):
         self.camera.reparentTo(self.camModel)
         #self.camera.setP(-45)
 
-        self.enemy = Actor("assets/enemy.bam")
+        self.enemy = Actor("assets/models/enemy.bam")
         self.enemy.reparentTo(self.render)
         self.showMesh(self.enemy)
 
@@ -128,10 +139,16 @@ class Game(ShowBase):
         self.pathfinder = PathFollower(self.enemy)
 
 
-        self.tiredNoise = self.loader.loadSfx("assets/tired.ogg")
-        self.stompingNoise = self.loader.loadSfx("assets/stomping.ogg")
+        self.audio3d = Audio3DManager.Audio3DManager(self.sfxManagerList[0], self.camera)
+
+        self.chasingNoise = self.audio3d.loadSfx("assets/sounds/enemy-chase.ogg")
+        self.chasingNoise.setLoop(True)
+        self.audio3d.attachSoundToObject(self.chasingNoise, self.enemy)
+
+        self.tiredNoise = self.loader.loadSfx("assets/sounds/tired.ogg")
+        self.stompingNoise = self.loader.loadSfx("assets/sounds/stomping.ogg")
         self.stompingNoise.setLoop(True)
-        self.fastStompingNoise = self.loader.loadSfx("assets/fast_stomping.ogg")
+        self.fastStompingNoise = self.loader.loadSfx("assets/sounds/fast_stomping.ogg")
         self.fastStompingNoise.setLoop(True)
 
 
@@ -259,7 +276,7 @@ class Game(ShowBase):
         self.isMoving = False
         self.isRunning = False
         self.tired = False
-        self.old_pos = self.camModel.getPos()
+        self.enemyChasing = False
         self.pathfinder.move_speed = 8
         self.runTimer = Timer(5)
         self.runTimer.pause()
@@ -284,36 +301,41 @@ class Game(ShowBase):
         dt = self.taskMgr.globalClock.getDt()
 
         self.movement()
+        self.enemyMovement()
 
-        self.camSlight.setPos(self.camera.getPos(self.render))
+        self.camSlight.setPos(self.camera.getPos(self.render)+(0, 0.5, 0))
         self.camSlight.look_at(self.camSlightFloater.getPos(self.render))
-
+        self.nearLight.setPos(self.camera.getPos(self.render))
+        
+        return task.cont
+    
+    def enemyMovement(self):
+        if self.enemyChasing:
+            if self.chasingNoise.status() != self.chasingNoise.PLAYING:
+                self.chasingNoise.play()
+            self.pathfinder.move_speed = ENEMY_SPEED * 2
+            try:
+                if not self.pathfinder.seq.isPlaying():
+                    self.goto(self.camera.getPos(self.render))
+            except:
+                pass
+        else:
+            if self.chasingNoise.status() == self.chasingNoise.PLAYING:
+                self.chasingNoise.stop()
+            self.pathfinder.move_speed = ENEMY_SPEED
+            try:
+                if not self.pathfinder.seq.isPlaying():
+                    self.goto(choice(self.enemyStartPos))
+            except:
+                pass
         #self.enemy.setZ(0)
         #self.enemy.setHpr(0, 0, 0)
-        self.pathfinderUpdate()
         self.pathfinder._update()
+        #self.enemy.setH(180)
         self.enemy.setZ(0)
         #self.AIworld.update()
 
         print(self.cam.node().isInView(self.enemy.getPos()))
-        
-        return task.cont
-    
-    def pathfinderUpdate(self):
-        '''#if self.camModel.getPos() != self.old_pos:
-        if self.pathfinder.seq.is_playing():
-            if self.enemyTiredTimer.timeIsUp():
-                self.enemyTired = True
-        else:
-            if not self.enemyTired:
-                self.goto(self.camModel.getPos())
-                self.enemyTiredTimer.reset()'''
-        
-        try:
-            if not self.pathfinder.seq.isPlaying():
-                self.goto(self.camera.getPos(self.render))
-        except:
-            pass
     
     # player movement
     def movement(self):

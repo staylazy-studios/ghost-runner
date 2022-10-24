@@ -336,8 +336,6 @@ class PathFollower:
             if prev_point:
                 d=_distance(prev_point, point)
                 duration=_distance(prev_point, point)/self.move_speed
-                print(prev_point, point, self.move_speed)
-                print(duration)
                 self.seq.append(LerpPosInterval(self.node, duration, point, prev_point, blendType=blend, fluid=fluid))
             prev_point=point
 
