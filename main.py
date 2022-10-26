@@ -40,7 +40,8 @@ from rpcore import RenderPipeline, PointLight, SpotLight
 import simplepbr
 
 PLAYER_SPEED = 4
-ENEMY_SPEED = 4
+ENEMY_SPEED = 5
+ENEMY_FOV = 90
 CAMERA_HEIGHT = 3
 
 class Game(ShowBase):
@@ -50,8 +51,8 @@ class Game(ShowBase):
         self.render_pipeline = RenderPipeline()
         self.render_pipeline.create(self)
 
-        self.render_pipeline.daytime_mgr.time = "20:40"
-        #self.render_pipeline.daytime_mgr.time = "7:40"
+        #self.render_pipeline.daytime_mgr.time = "20:40"
+        self.render_pipeline.daytime_mgr.time = "7:40"
         # ----- End of render pipeline code -----'''
         
         # testing filters
@@ -62,7 +63,7 @@ class Game(ShowBase):
         self.disableMouse()
         #self.pipeline = simplepbr.init()
         #self.render.setShaderAuto()
-        #self.oobeCull()
+        self.oobe()
 
         GlobalInstance.GameObject['base'] = self
 
@@ -208,6 +209,11 @@ class Game(ShowBase):
         self.accept("mouse1", self.mouseClick)
         self.accept("mouse3", self.toggleCamSlight)
         self.accept("escape", sys.exit)
+        # DEBUG
+        def toggleEnemyChase():
+            self.enemyChasing = not self.enemyChasing
+        self.accept("q", toggleEnemyChase)
+        # DEBUG
 
 
         # set up collision detection ------------------------------
@@ -217,12 +223,23 @@ class Game(ShowBase):
         self.camLens.setFov(90)
         ################################################################
 
-        self.camCol = CollisionNode('camera')
+        self.camCol = CollisionNode('player')
         self.camCol.addSolid(CollisionSphere(center=(0, 0, -2), radius=0.5))
         self.camCol.addSolid(CollisionSphere(center=(0, -0.25, 0), radius=0.5))
         self.camCol.setFromCollideMask(CollideMask.bit(0))
-        self.camCol.setIntoCollideMask(CollideMask.allOff())
+        self.camCol.setIntoCollideMask(CollideMask.bit(0))
         self.camColNp = self.camModel.attachNewNode(self.camCol)
+        #self.camColNp.show()
+
+        self.enemyRay = CollisionRay(0, 1, 3, 0, 1, 0)
+        self.enemyCol = CollisionNode('enemyRay')
+        self.enemyCol.addSolid(self.enemyRay)
+        self.enemyCol.setFromCollideMask(CollideMask.bit(0))
+        self.enemyCol.setIntoCollideMask(CollideMask.allOff())
+        self.enemyColNp = self.enemy.attachNewNode(self.enemyCol)
+        #self.enemyColNp.show()
+        self.enemyHandler = CollisionHandlerQueue()
+        self.cTrav.addCollider(self.enemyColNp, self.enemyHandler)
 
         '''self.enemyCol = CollisionNode('enemy')
         self.enemyCol.addSolid(CollisionSphere(center=(0, 0, 0), radius=1))
@@ -276,6 +293,7 @@ class Game(ShowBase):
         self.isMoving = False
         self.isRunning = False
         self.tired = False
+        self._enemyChasing = False
         self.enemyChasing = False
         self.pathfinder.move_speed = 8
         self.runTimer = Timer(5)
@@ -315,8 +333,15 @@ class Game(ShowBase):
                 self.chasingNoise.play()
             self.pathfinder.move_speed = ENEMY_SPEED * 2
             try:
-                if not self.pathfinder.seq.isPlaying():
-                    self.goto(self.camera.getPos(self.render))
+                if self._enemyChasing != self.enemyChasing:
+                    if not self.pathfinder.seq.isPlaying():
+                        self.goto(self.camera.getPos(self.render))
+                    else:
+                        self.pathfinder.stop()
+                    self._enemyChasing = self.enemyChasing
+                else:
+                    if not self.pathfinder.seq.isPlaying():
+                        self.goto(self.camera.getPos(self.render))
             except:
                 pass
         else:
@@ -324,18 +349,35 @@ class Game(ShowBase):
                 self.chasingNoise.stop()
             self.pathfinder.move_speed = ENEMY_SPEED
             try:
-                if not self.pathfinder.seq.isPlaying():
-                    self.goto(choice(self.enemyStartPos))
+                if self._enemyChasing != self.enemyChasing:
+                    if not self.pathfinder.seq.isPlaying():
+                        self.goto(choice(self.enemyStartPos))
+                    else:
+                        self.pathfinder.stop()
+                    self._enemyChasing = self.enemyChasing
+                else:
+                    if not self.pathfinder.seq.isPlaying():
+                        self.goto(choice(self.enemyStartPos))
             except:
                 pass
-        #self.enemy.setZ(0)
-        #self.enemy.setHpr(0, 0, 0)
+        
         self.pathfinder._update()
         #self.enemy.setH(180)
         self.enemy.setZ(0)
-        #self.AIworld.update()
+        
+        self.enemyColNp.lookAt(self.camModel.getPos(self.enemy) - (0, 0, 3))
+        if self.enemyHandler.getNumEntries(): # if there are any entries
+            self.enemyHandler.sortEntries()
+            firstEntry = list(self.enemyHandler.entries)[0]
 
-        print(self.cam.node().isInView(self.enemy.getPos()))
+            if firstEntry.getIntoNode().name == 'player':
+                hpr = self.enemyColNp.getHpr()
+                if hpr < ENEMY_FOV and hpr > -ENEMY_FOV:
+                    print(firstEntry)
+                    print(hpr)
+                    self.enemyChasing = True
+
+        #print(self.cam.node().isInView(self.enemy.getPos()))
     
     # player movement
     def movement(self):
