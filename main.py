@@ -18,6 +18,7 @@ from panda3d.core import WindowProperties, ModifierButtons, \
     GeomVertexFormat, NodePath, Point3
 from panda3d.ai import AIWorld, AICharacter
 from direct.showbase.ShowBase import ShowBase
+from direct.interval.LerpInterval import LerpPosInterval
 from direct.actor.Actor import Actor
 from direct.showbase import Audio3DManager
 from base_objects import *
@@ -51,8 +52,8 @@ class Game(ShowBase):
         self.render_pipeline = RenderPipeline()
         self.render_pipeline.create(self)
 
-        #self.render_pipeline.daytime_mgr.time = "20:40"
-        self.render_pipeline.daytime_mgr.time = "7:40"
+        self.render_pipeline.daytime_mgr.time = "20:40"
+        #self.render_pipeline.daytime_mgr.time = "7:40"
         # ----- End of render pipeline code -----'''
         
         # testing filters
@@ -63,7 +64,7 @@ class Game(ShowBase):
         self.disableMouse()
         #self.pipeline = simplepbr.init()
         #self.render.setShaderAuto()
-        self.oobe()
+        #self.oobe()
 
         GlobalInstance.GameObject['base'] = self
 
@@ -207,12 +208,22 @@ class Game(ShowBase):
 
         self.accept("f11", self.toggleFullscreen)
         self.accept("mouse1", self.mouseClick)
-        self.accept("mouse3", self.toggleCamSlight)
+        self.accept("mouse3", self.toggleFlashlight)
         self.accept("escape", sys.exit)
         # DEBUG
         def toggleEnemyChase():
             self.enemyChasing = not self.enemyChasing
+        def teleport():
+            posInterval = LerpPosInterval(
+                nodePath=self.camModel,
+                duration=1,
+                pos=choice(self.enemyStartPos)+(0, 0, CAMERA_HEIGHT),
+                blendType='easeInOut'
+            )
+
+            posInterval.start()
         self.accept("q", toggleEnemyChase)
+        self.accept("t", teleport)
         # DEBUG
 
 
@@ -295,7 +306,7 @@ class Game(ShowBase):
         self.tired = False
         self._enemyChasing = False
         self.enemyChasing = False
-        self.pathfinder.move_speed = 8
+        self.pathfinder.move_speed = ENEMY_SPEED
         self.runTimer = Timer(5)
         self.runTimer.pause()
         self.tiredTimer = Timer(5)
@@ -316,16 +327,44 @@ class Game(ShowBase):
         )
 
     def update(self, task):
-        dt = self.taskMgr.globalClock.getDt()
-
-        self.movement()
+        if self.isGameOver:
+            return task.cont
+        
+        self.playerMovement()
         self.enemyMovement()
-
+        
+        return task.cont
+    
+    def cameraMovement(self, dt):
         self.camSlight.setPos(self.camera.getPos(self.render)+(0, 0.5, 0))
         self.camSlight.look_at(self.camSlightFloater.getPos(self.render))
         self.nearLight.setPos(self.camera.getPos(self.render))
-        
-        return task.cont
+
+        if self.inGame:
+            mw = self.mouseWatcherNode
+            if mw.hasMouse():
+                x, y = mw.getMouseX(), mw.getMouseY()
+                if self.lastMouseX is not None:
+                    dx, dy = x, y
+                else:
+                    dx, dy = 0, 0
+                self.lastMouseX, self.lastMouseY = x, y
+            else:
+                self.toggleIngame()
+                x, y, dx, dy = 0, 0, 0, 0
+            self.recenterCursor()
+            self.lastMouseX, self.lastMouseY = 0, 0
+            
+            self.rotateH -= dx * dt * 1500
+            self.rotateP += dy * dt * 1000
+
+            if self.rotateP > self.pitchMax:
+                self.rotateP -= self.rotateP - self.pitchMax
+            elif self.rotateP < self.pitchMin:
+                self.rotateP -= self.rotateP - self.pitchMin
+
+            self.camera.setH(self.rotateH)
+            self.camera.setP(self.rotateP)
     
     def enemyMovement(self):
         if self.enemyChasing:
@@ -373,41 +412,13 @@ class Game(ShowBase):
             if firstEntry.getIntoNode().name == 'player':
                 hpr = self.enemyColNp.getHpr()
                 if hpr < ENEMY_FOV and hpr > -ENEMY_FOV:
-                    print(firstEntry)
-                    print(hpr)
                     self.enemyChasing = True
-
-        #print(self.cam.node().isInView(self.enemy.getPos()))
     
     # player movement
-    def movement(self):
+    def playerMovement(self):
         dt = self.taskMgr.globalClock.getDt()
 
-        if self.inGame:
-            mw = self.mouseWatcherNode
-            if mw.hasMouse():
-                x, y = mw.getMouseX(), mw.getMouseY()
-                if self.lastMouseX is not None:
-                    dx, dy = x, y
-                else:
-                    dx, dy = 0, 0
-                self.lastMouseX, self.lastMouseY = x, y
-            else:
-                self.toggleIngame()
-                x, y, dx, dy = 0, 0, 0, 0
-            self.recenterCursor()
-            self.lastMouseX, self.lastMouseY = 0, 0
-            
-            self.rotateH -= dx * dt * 1500
-            self.rotateP += dy * dt * 1000
-
-            if self.rotateP > self.pitchMax:
-                self.rotateP -= self.rotateP - self.pitchMax
-            elif self.rotateP < self.pitchMin:
-                self.rotateP -= self.rotateP - self.pitchMin
-
-            self.camera.setH(self.rotateH)
-            self.camera.setP(self.rotateP)
+        self.cameraMovement(dt)
 
         if self.keyMap['a'] or self.keyMap['d'] or self.keyMap['w'] or self.keyMap['s']:
             self.isMoving = True
@@ -466,14 +477,14 @@ class Game(ShowBase):
         #print(self.enemyColHandler.entries)
         
         for entry in entries:
-            if entry.getIntoNode().name == 'Terrain':
+            if entry.getIntoNode().name == 'Ground':
                 self.camModel.setFluidZ(entry.getSurfacePoint(self.render).getZ()+CAMERA_HEIGHT)
     
-    # Records the state of the wasd keys
+    # Records the state of the wasd and shift keys
     def setKey(self, key, value):
         self.keyMap[key] = value
     
-    def toggleCamSlight(self):
+    def toggleFlashlight(self):
         self.flashOn = not self.flashOn
 
         if self.flashOn:
