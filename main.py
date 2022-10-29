@@ -45,7 +45,7 @@ import simplepbr
 
 PLAYER_SPEED = 4
 ENEMY_SPEED = 5
-ENEMY_FOV = 90
+ENEMY_FOV = 70
 CAMERA_HEIGHT = 3
 
 class Game(ShowBase):
@@ -56,6 +56,7 @@ class Game(ShowBase):
         self.render_pipeline.create(self)
 
         self.render_pipeline.daytime_mgr.time = "20:40"
+        #self.render_pipeline.daytime_mgr.time = "00:00"
         #self.render_pipeline.daytime_mgr.time = "7:40"
         # ----- End of render pipeline code -----'''
         
@@ -73,6 +74,7 @@ class Game(ShowBase):
 
         # Load files
         self.map = self.loader.loadModel("assets/models/map.bam")
+        #self.render_pipeline.prepare_scene(self.map)
         self.map.reparentTo(self.render)
         self.showMesh(self.map)
 
@@ -124,7 +126,7 @@ class Game(ShowBase):
         self.render_pipeline.add_light(_plight)
         
 
-        startPos = self.map.find("**/StartPos").getPos()
+        self.playerStartPos = self.map.find("**/StartPos").getPos()
 
         # camModel is only used for camera animation. Use self.camera for camera manipulation
         self.camAnim = Actor("assets/models/camera.glb")
@@ -134,7 +136,6 @@ class Game(ShowBase):
 
         self.camModel = NodePath("floater")
         self.camModel.reparentTo(joint)
-        self.camModel.setPos(startPos + (0, 0, CAMERA_HEIGHT))
         self.camera.reparentTo(self.camModel)
         #self.camera.setP(-45)
 
@@ -147,14 +148,26 @@ class Game(ShowBase):
 
         self.pathfinder = PathFollower(self.enemy)
 
+        self.enemyFloater = NodePath("enemyFloater")
+        self.showMesh(self.enemyFloater)
+        self.enemyFloater.setScale(0.2)
+        self.enemyFloater.setPos(0, 1, 3)
+        self.enemyFloater.reparentTo(self.enemy)
+
 
         self.audio3d = Audio3DManager.Audio3DManager(self.sfxManagerList[0], self.camera)
 
-        self.chasingNoise = self.audio3d.loadSfx("assets/sounds/enemy-chase.ogg")
+        self.chasingNoise = self.audio3d.loadSfx("assets/sounds/enemy_chase.ogg")
+        self.enemyStompingNoise = self.audio3d.loadSfx("assets/sounds/enemy_stomping.ogg")
+        self.enemyFastStompingNoise = self.audio3d.loadSfx("assets/sounds/enemy_fast_stomping.ogg")
         self.chasingNoise.setLoop(True)
+        self.enemyFastStompingNoise.setLoop(True)
+        self.enemyStompingNoise.setLoop(True)
         self.audio3d.attachSoundToObject(self.chasingNoise, self.enemy)
+        self.audio3d.attachSoundToObject(self.enemyFastStompingNoise, self.enemy)
+        self.audio3d.attachSoundToObject(self.enemyStompingNoise, self.enemy)
 
-        self.enemyScream = self.loader.loadSfx("assets/sounds/enemy-scream.ogg")
+        self.enemyScream = self.loader.loadSfx("assets/sounds/enemy_scream.ogg")
 
         self.tiredNoise = self.loader.loadSfx("assets/sounds/tired.ogg")
         self.stompingNoise = self.loader.loadSfx("assets/sounds/stomping.ogg")
@@ -225,7 +238,8 @@ class Game(ShowBase):
         self.accept("q", toggleEnemyChase)
         self.accept("t", lambda: self.teleport(choice(self.enemyStartPos)+(0, 0, CAMERA_HEIGHT)))
         self.accept("e", self.pressE)
-        self.accept("g", self.gameOver)
+        #self.accept("g", self.gameOver)
+        self.accept("player-into-Enemy", self.playerIntoEnemy)
         # DEBUG
 
 
@@ -244,9 +258,13 @@ class Game(ShowBase):
         self.camCol.setIntoCollideMask(CollideMask.bit(0))
         self.camColNp = self.camModel.attachNewNode(self.camCol)
         #self.camColNp.show()
+        '''self.playerEnemyHandler = CollisionHandlerQueue()
+        self.cTrav.addCollider(self.camColNp, self.playerEnemyHandler)
+        self.cTrav.showCollisions(self.render)'''
 
         self.pickerNode = CollisionNode('picker')
-        self.pickerNode.addSolid(CollisionSegment(0, 0, 0, 0, 2, 0))
+        #self.pickerNode.addSolid(CollisionSegment(0, 0, 0, 0, 2.5, 0))
+        self.pickerNode.addSolid(CollisionSegment(0, 0, 0, 0, 5, 0))
         self.pickerNode.setFromCollideMask(CollideMask.bit(0))
         self.pickerNode.setIntoCollideMask(CollideMask.allOff())
         self.pickerNp = self.camera.attachNewNode(self.pickerNode)
@@ -261,8 +279,8 @@ class Game(ShowBase):
         self.enemyCol.setIntoCollideMask(CollideMask.allOff())
         self.enemyColNp = self.enemy.attachNewNode(self.enemyCol)
         #self.enemyColNp.show()
-        self.enemyHandler = CollisionHandlerQueue()
-        self.cTrav.addCollider(self.enemyColNp, self.enemyHandler)
+        self.enemyRayHandler = CollisionHandlerQueue()
+        self.cTrav.addCollider(self.enemyColNp, self.enemyRayHandler)
 
         '''self.enemyCol = CollisionNode('enemy')
         self.enemyCol.addSolid(CollisionSphere(center=(0, 0, 0), radius=1))
@@ -272,6 +290,7 @@ class Game(ShowBase):
         
         self.pusher = CollisionHandlerPusher()
         self.pusher.horizontal = True
+        self.pusher.addInPattern("player-into-Enemy")
 
         self.pusher.addCollider(self.camColNp, self.camModel)
         #self.pusher.addCollider(self.enemyColNp, self.enemy)
@@ -313,6 +332,12 @@ class Game(ShowBase):
         #self.cTrav.showCollisions(self.render)
         # end collision detection
 
+        # ---------- variables ----------
+        self.fullscreen = False
+        self.flashOn = False
+        self.pitchMax, self.pitchMin = 40, -90
+
+        self.taskMgr.add(self.update, "update")
 
         self.start()
     
@@ -320,25 +345,29 @@ class Game(ShowBase):
         # variables
         self.inGame = False
         self.isGameOver = False
-        self.fullscreen = False
-        self.flashOn = False
-        self.lastMouseX, self.lastMouseY = None, None
+        if self.flashOn:
+            self.toggleFlashlight()
+
+        self.lastMouseX, self.lastMouseY = 0, 0
         self.rotateH, self.rotateP = 0, 0
-        self.pitchMax, self.pitchMin = 40, -90
+
         self.speed = PLAYER_SPEED
         self.isMoving = False
         self.isRunning = False
         self.isHiding = False
         self.beforeHidePos = (0, 0, 0)
         self.tired = False
-        self._enemyChasing = False
-        self.enemyChasing = False
-        self.enemySeesPlayer = False
-        self.pathfinder.move_speed = ENEMY_SPEED
         self.runTimer = Timer(5)
         self.runTimer.pause()
         self.tiredTimer = Timer(5)
         self.tiredTimer.pause()
+
+        self._enemyChasing = False
+        self.enemyChasing = False
+        self.enemySeesPlayer = False
+        self.enemySearching = False
+
+        self.pathfinder.move_speed = ENEMY_SPEED
 
         self.keyMap = {
             'a': False, 'd': False,
@@ -351,7 +380,14 @@ class Game(ShowBase):
         self.pressEText.setText("Press 'E' to hide")
         self.pressEText.hide()
 
-        self.taskMgr.add(self.update, "update")
+        self.nearLight.energy = 0.1
+
+        self.camera.setHpr(0, 0, 0)
+        self.camModel.setPos(self.playerStartPos + (0, 0, CAMERA_HEIGHT))
+        self.camAnim.setPos(self.playerStartPos)
+        self.camAnim.pose("shake", 0)
+
+        self.enemy.setPos(choice(self.enemyStartPos))
         #self.taskMgr.doMethodLater(5, self.pathfinderUpdate, "pathfinderUpdate")
     
     # DEBUG
@@ -379,6 +415,13 @@ class Game(ShowBase):
         
         return task.cont
     
+    def playerIntoEnemy(self, entry):
+        if entry.getIntoNode().name != "Enemy" or self.isGameOver:
+            return
+
+        if self.enemyChasing and not self.enemySearching:
+            self.gameOver()
+    
     def gameOver(self):
         self.isGameOver = True
         
@@ -389,23 +432,29 @@ class Game(ShowBase):
         self.pressEText.hide()
 
         self.chasingNoise.stop()
+        self.enemyStompingNoise.stop()
+        self.enemyFastStompingNoise.stop()
         self.tiredNoise.stop()
         self.stompingNoise.stop()
         self.fastStompingNoise.stop()
 
-        self.nearLight.energy = 1000
-
-        self.camModel.setPos(self.enemy, (0, 2, CAMERA_HEIGHT))
-        self.camera.setH(self.enemy.getH())
+        #self.camModel.setPos(self.enemyFloater, 0, 1, 0)
+        #self.camera.setH(-self.enemyFloater.getH(self.render))
         #self.camera.setP(-45)
         #self.enemy.setPos(self.camera, (0, 2, -CAMERA_HEIGHT))
         #self.enemy.setH(-self.camera.getH())
         #self.camAnim.setPos(self.camera.getPos(self.render))
-        self.camAnim.setPos(self.camera.getPos(self.render))
+        self.camAnim.setPos(self.enemyFloater, 0, 1, 0)
+        self.camModel.setPos(self.camAnim, 0, 0, 0)
+        self.camera.lookAt(self.enemyFloater)
+
+        self.nearLight.energy = 2
+        self.nearLight.setPos(self.camera.getPos(self.render))
+
         self.camAnim.play("shake")
         self.enemyScream.play()
 
-        #self.taskMgr.doMethodLater(5, self.start, "startGame")
+        self.taskMgr.doMethodLater(5, self.start, "startGame", extraArgs=[])
     
     def cameraMovement(self, dt):
         self.flashlight.setPos(self.camera.getPos(self.render)+(0, 0.5, 0))
@@ -442,6 +491,10 @@ class Game(ShowBase):
         if self.enemyChasing:
             if self.chasingNoise.status() != self.chasingNoise.PLAYING:
                 self.chasingNoise.play()
+            if self.enemyFastStompingNoise.status() != self.enemyFastStompingNoise.PLAYING:
+                self.enemyFastStompingNoise.play()
+            if self.enemyStompingNoise.status() == self.enemyStompingNoise.PLAYING:
+                self.enemyStompingNoise.stop()
             self.pathfinder.move_speed = ENEMY_SPEED * 2
             try:
                 if self._enemyChasing != self.enemyChasing:
@@ -455,9 +508,20 @@ class Game(ShowBase):
                         self.goto(self.camera.getPos(self.render))
             except:
                 pass
+        elif self.enemySearching:
+            if self.isHiding:
+                if not self.pathfinder.seq.isPlaying():
+                    self.enemySearching = False
+            else:
+                self.enemySearching = False
+                self.enemyChasing = True
         else:
             if self.chasingNoise.status() == self.chasingNoise.PLAYING:
                 self.chasingNoise.stop()
+            if self.enemyFastStompingNoise.status() == self.enemyFastStompingNoise.PLAYING:
+                self.enemyFastStompingNoise.stop()
+            if self.enemyStompingNoise.status() != self.enemyStompingNoise.PLAYING:
+                self.enemyStompingNoise.play()
             self.pathfinder.move_speed = ENEMY_SPEED
             try:
                 if self._enemyChasing != self.enemyChasing:
@@ -475,11 +539,12 @@ class Game(ShowBase):
         self.pathfinder._update()
         #self.enemy.setH(180)
         self.enemy.setZ(0)
+        self.enemy.setP(0)
         
         self.enemyColNp.lookAt(self.camModel.getPos(self.enemy) - (0, 0, 3))
-        if self.enemyHandler.getNumEntries(): # if there are any entries
-            self.enemyHandler.sortEntries()
-            firstEntry = list(self.enemyHandler.entries)[0]
+        if self.enemyRayHandler.getNumEntries(): # if there are any entries
+            self.enemyRayHandler.sortEntries()
+            firstEntry = list(self.enemyRayHandler.entries)[0]
 
             if firstEntry.getIntoNode().name == 'player':
                 self.enemySeesPlayer = True
@@ -581,6 +646,14 @@ class Game(ShowBase):
             self.pressEText.hide()
             self.cursorOnImage.hide()
             self.cursorOffImage.show()
+        
+        '''# ---------- player and enemy event ----------
+        if self.playerEnemyHandler.getNumEntries():
+            print("playerEnemyHandler!")
+            for entry in self.playerEnemyHandler.entries:
+                print(entry.getIntoNode().name)
+                if entry.getIntoNode().name == "Enemy":
+                    self.gameOver()'''
     
     # Records the state of the wasd and shift keys
     def setKey(self, key, value):
@@ -651,14 +724,21 @@ class Game(ShowBase):
             if nodePath.getName().startswith("HidingPlace"):
                 if self.isHiding:
                     pos = self.beforeHidePos
+                    #self.camModel.unstash()
+                    #self.camColNp.unstash()
+                    #self.pusher.addCollider(self.camColNp, self.camModel)
                 else:
                     self.beforeHidePos = self.camModel.getPos()
                     pos = nodePath.getPos(self.render)
+                    #self.camModel.stash()
+                    #self.camColNp.stash()
+                    #print("camColNp stashed!")
+                    #self.pusher.removeCollider(self.camColNp)
 
                     if self.enemyChasing:
-                        if self.enemySeesPlayer:
-                            self.enemyChasing = True
-                        else:
+                        if not self.enemySeesPlayer:
+                            self.goto(self.beforeHidePos)
+                            self.enemySearching = True
                             self.enemyChasing = False
                     
                 self.teleport(pos)
