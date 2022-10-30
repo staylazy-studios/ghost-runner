@@ -32,10 +32,18 @@ import sys
 
 
 # Controls are:
-# Move around - wasd
+# Move around - wasd (hold shift to run)
 # Look around - with the goddamn mouse
 # Turn flash light on - right click
+# Hide/interact with objects - e
 # red dude is the enemy
+# Also some extra DEBUG controls are:
+# 't' to teleport to a random enemy spawn point
+# 'q' to make enemy chase you
+# 'f' to .stash() player colNode
+# 'f11' to fullscreen
+# 'escape' to quit
+
 
 USE_RP = False
 
