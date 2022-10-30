@@ -27,7 +27,7 @@ from direct.showbase import Audio3DManager
 from base_objects import *
 import GlobalInstance
 from wezupath import NavGraph, PathFollower
-from random import choice
+from random import choice, random
 import sys
 
 
@@ -37,11 +37,17 @@ import sys
 # Turn flash light on - right click
 # red dude is the enemy
 
+USE_RP = False
 
-pipeline_path = "/home/joey/dev/panda_3d/RenderPipeline/"
-sys.path.insert(0, pipeline_path)
-from rpcore import RenderPipeline, PointLight, SpotLight
-import simplepbr
+if USE_RP:
+    pipeline_path = "/home/joey/dev/panda_3d/RenderPipeline/"
+    sys.path.insert(0, pipeline_path)
+    from rpcore import RenderPipeline, PointLight, SpotLight
+    simplepbr = None
+else:
+    from panda3d.core import PointLight, Spotlight, PerspectiveLens
+    import simplepbr
+    #RenderPipeline = SpotLight = None
 
 PLAYER_SPEED = 4
 ENEMY_SPEED = 5
@@ -50,19 +56,20 @@ CAMERA_HEIGHT = 3
 
 class Game(ShowBase):
     def __init__(self):
-        #super().__init__()
-        # ----- Begin of render pipeline code -----
-        self.render_pipeline = RenderPipeline()
-        self.render_pipeline.create(self)
+        if USE_RP:
+            #super().__init__()
+            # ----- Begin of render pipeline code -----
+            self.render_pipeline = RenderPipeline()
+            self.render_pipeline.create(self)
 
-        self.render_pipeline.daytime_mgr.time = "20:40"
-        #self.render_pipeline.daytime_mgr.time = "00:00"
-        #self.render_pipeline.daytime_mgr.time = "7:40"
-        # ----- End of render pipeline code -----'''
-        
-        # testing filters
-        #filters = CommonFilters(self.win, self.cam)
-        #filters.setAmbientOcclusion(32, 0.1, 1, 0.01)
+            #self.render_pipeline.daytime_mgr.time = "20:40"
+            self.render_pipeline.daytime_mgr.time = "00:00"
+            #self.render_pipeline.daytime_mgr.time = "7:40"
+            # ----- End of render pipeline code -----'''
+        else:
+            super().__init__()
+            self.setBackgroundColor(0, 0, 0, 0)
+            self.pipeline = simplepbr.init()
 
         
         self.disableMouse()
@@ -91,39 +98,64 @@ class Game(ShowBase):
         self.navigationMesh.detachNode()
         self.navigationGraph = NavGraph(self.navigationMesh)
 
-        slight = SpotLight()
-        slight.pos = lightPos
-        slight.fov = 60
-        slight.energy = 1000
-        slight.casts_shadows = True
-        slight.shadow_map_resolution = 512
-        slight.near_plane = 0.2
-        slight.set_color_from_temperature(4000)
-        #slight.look_at(0, 0, 0)
-        self.render_pipeline.add_light(slight)
+        if USE_RP:
+            slight = SpotLight()
+            slight.pos = lightPos
+            slight.fov = 60
+            slight.energy = 1000
+            slight.casts_shadows = True
+            slight.shadow_map_resolution = 512
+            slight.near_plane = 0.2
+            slight.set_color_from_temperature(4000)
+            #slight.look_at(0, 0, 0)
+            self.render_pipeline.add_light(slight)
 
-        self.flashlight = SpotLight()
-        #self.flashlight.pos = self.camera.getPos()
-        self.flashlight.fov = 50
-        self.flashlight.radius = 25
-        self.flashlight.energy = 50
-        self.flashlight.casts_shadows = True
-        self.flashlight.shadow_map_resolution = 512
-        self.flashlight.near_plane = 0.2
-        #self.flashlight.look_at(self.camera.getQuat().getForward())
+            self.flashlight = SpotLight()
+            #self.flashlight.pos = self.camera.getPos()
+            self.flashlight.fov = 50
+            self.flashlight.radius = 25
+            self.flashlight.energy = 50
+            self.flashlight.casts_shadows = True
+            self.flashlight.shadow_map_resolution = 512
+            self.flashlight.near_plane = 0.2
+            #self.flashlight.look_at(self.camera.getQuat().getForward())
+
+            self.nearLight = PointLight()
+            self.nearLight.energy = 0.1
+            self.render_pipeline.add_light(self.nearLight)
+
+            # this is for the bug where remove_light removes the passed light and the last light that was instantiated
+            _plight = PointLight()
+            _plight.energy = 0.1
+            self.render_pipeline.add_light(_plight)
+        else:
+            slight = Spotlight("slight")
+            slight.setColor((1.0, 0.82, 0.64, 1))
+            #slight.attenuation = (1, 0, 1)
+            lens = PerspectiveLens()
+            lens.setFov(60)
+            slight.setLens(lens)
+            slnp = self.render.attachNewNode(slight)
+            slnp.setPos(lightPos)
+            slnp.lookAt(self.camera)
+            self.render.setLight(slnp)
+
+            slight = Spotlight("flashlight")
+            slight.attenuation = (1, 0, 0.05)
+            lens = PerspectiveLens()
+            lens.setFov(50)
+            slight.setLens(lens)
+            self.flashlight = self.camera.attachNewNode(slight)
+
+            plight = PointLight("plight")
+            plight.setColor((1, 1, 1, 0.1))
+            plight.attenuation = (1, 0, 1)
+            self.nearLight = self.camera.attachNewNode(plight)
+            self.render.setLight(self.nearLight)
 
         self.flashlightFloater = NodePath("flashlightFloater")
         self.flashlightFloater.setPos(0, 5, 0)
         self.flashlightFloater.reparentTo(self.camera)
-
-        self.nearLight = PointLight()
-        self.nearLight.energy = 0.1
-        self.render_pipeline.add_light(self.nearLight)
-
-        # this is for the bug where remove_light removes the passed light and the last light that was instantiated
-        _plight = PointLight()
-        _plight.energy = 0.1
-        self.render_pipeline.add_light(_plight)
         
 
         self.playerStartPos = self.map.find("**/StartPos").getPos()
@@ -155,6 +187,10 @@ class Game(ShowBase):
         self.enemyFloater.reparentTo(self.enemy)
 
 
+        self.backgroundMusic = self.loader.loadMusic("assets/sounds/Shattered_Mind.ogg")
+        self.backgroundMusic.setVolume(0.01)
+        self.backgroundMusic.setLoop(True)
+
         self.audio3d = Audio3DManager.Audio3DManager(self.sfxManagerList[0], self.camera)
 
         self.chasingNoise = self.audio3d.loadSfx("assets/sounds/enemy_chase.ogg")
@@ -181,10 +217,10 @@ class Game(ShowBase):
         plnp = self.render.attachNewNode(plight)
         plnp.setPos(5, -5, 8)
         self.render.setLight(plnp)'''
-        alight = AmbientLight("alight")
+        '''alight = AmbientLight("alight")
         alight.setColor((.1, .1, .1, 1))
         alnp = self.render.attachNewNode(alight)
-        self.render.setLight(alnp)
+        self.render.setLight(alnp)'''
         '''# render pipeline light
         my_light = PointLight()
         my_light.pos = (5, -5, 5)
@@ -232,14 +268,18 @@ class Game(ShowBase):
         self.accept("mouse1", self.mouseClick)
         self.accept("mouse3", self.toggleFlashlight)
         self.accept("escape", sys.exit)
+        self.accept("player-into-Enemy", self.playerIntoEnemy)
         # DEBUG
         def toggleEnemyChase():
             self.enemyChasing = not self.enemyChasing
         self.accept("q", toggleEnemyChase)
         self.accept("t", lambda: self.teleport(choice(self.enemyStartPos)+(0, 0, CAMERA_HEIGHT)))
         self.accept("e", self.pressE)
+        def stashNp():
+            self.camColNp.stash()
+            print("stashed!")
+        self.accept("f", stashNp)
         #self.accept("g", self.gameOver)
-        self.accept("player-into-Enemy", self.playerIntoEnemy)
         # DEBUG
 
 
@@ -263,8 +303,8 @@ class Game(ShowBase):
         self.cTrav.showCollisions(self.render)'''
 
         self.pickerNode = CollisionNode('picker')
-        #self.pickerNode.addSolid(CollisionSegment(0, 0, 0, 0, 2.5, 0))
-        self.pickerNode.addSolid(CollisionSegment(0, 0, 0, 0, 5, 0))
+        self.pickerNode.addSolid(CollisionSegment(0, 0, 0, 0, 2.5, 0))
+        #self.pickerNode.addSolid(CollisionSegment(0, 0, 0, 0, 5, 0))
         self.pickerNode.setFromCollideMask(CollideMask.bit(0))
         self.pickerNode.setIntoCollideMask(CollideMask.allOff())
         self.pickerNp = self.camera.attachNewNode(self.pickerNode)
@@ -375,14 +415,19 @@ class Game(ShowBase):
             'shift': False,
         }
 
+        self.backgroundMusic.play()
+
         self.cursorOffImage.show()
         self.cursorOnImage.hide()
         self.pressEText.setText("Press 'E' to hide")
         self.pressEText.hide()
 
-        self.nearLight.energy = 0.1
+        if USE_RP:
+            self.nearLight.energy = 0.1
+        else:
+            self.nearLight.node().setColor((1, 1, 1, 0.1))
 
-        self.camera.setHpr(0, 0, 0)
+        self.camera.setHpr(0, -45, 0)
         self.camModel.setPos(self.playerStartPos + (0, 0, CAMERA_HEIGHT))
         self.camAnim.setPos(self.playerStartPos)
         self.camAnim.pose("shake", 0)
@@ -412,6 +457,10 @@ class Game(ShowBase):
         
         self.playerMovement()
         self.enemyMovement()
+
+        '''if random() < 0.00_001: # 0.001% chance of playing every frame
+            if self.backgroundMusic.status() != self.backgroundMusic.PLAYING:
+                self.backgroundMusic.play()'''
         
         return task.cont
     
@@ -437,6 +486,7 @@ class Game(ShowBase):
         self.tiredNoise.stop()
         self.stompingNoise.stop()
         self.fastStompingNoise.stop()
+        self.backgroundMusic.stop()
 
         #self.camModel.setPos(self.enemyFloater, 0, 1, 0)
         #self.camera.setH(-self.enemyFloater.getH(self.render))
@@ -448,7 +498,10 @@ class Game(ShowBase):
         self.camModel.setPos(self.camAnim, 0, 0, 0)
         self.camera.lookAt(self.enemyFloater)
 
-        self.nearLight.energy = 2
+        if USE_RP:
+            self.nearLight.energy = 2
+        else:
+            self.nearLight.node().setColor((1, 1, 1, 0.5))
         self.nearLight.setPos(self.camera.getPos(self.render))
 
         self.camAnim.play("shake")
@@ -457,9 +510,10 @@ class Game(ShowBase):
         self.taskMgr.doMethodLater(5, self.start, "startGame", extraArgs=[])
     
     def cameraMovement(self, dt):
-        self.flashlight.setPos(self.camera.getPos(self.render)+(0, 0.5, 0))
-        self.flashlight.look_at(self.flashlightFloater.getPos(self.render))
-        self.nearLight.setPos(self.camera.getPos(self.render))
+        if USE_RP:
+            self.flashlight.setPos(self.camera.getPos(self.render)+(0, 0.5, 0))
+            self.flashlight.look_at(self.flashlightFloater.getPos(self.render))
+            self.nearLight.setPos(self.camera.getPos(self.render))
 
         if self.inGame:
             mw = self.mouseWatcherNode
@@ -540,6 +594,10 @@ class Game(ShowBase):
         #self.enemy.setH(180)
         self.enemy.setZ(0)
         self.enemy.setP(0)
+
+        print("enemySeesPlayer:", self.enemySeesPlayer)
+        print("enemySearching:", self.enemySearching)
+        print("enemyChasing:", self.enemyChasing)
         
         self.enemyColNp.lookAt(self.camModel.getPos(self.enemy) - (0, 0, 3))
         if self.enemyRayHandler.getNumEntries(): # if there are any entries
@@ -663,9 +721,15 @@ class Game(ShowBase):
         self.flashOn = not self.flashOn
 
         if self.flashOn:
-            self.render_pipeline.add_light(self.flashlight)
+            if USE_RP:
+                self.render_pipeline.add_light(self.flashlight)
+            else:
+                self.render.setLight(self.flashlight)
         else:
-            self.render_pipeline.remove_light(self.flashlight)
+            if USE_RP:
+                self.render_pipeline.remove_light(self.flashlight)
+            else:
+                self.render.clearLight(self.flashlight)
     
     # Toggles fullscreen
     def toggleFullscreen(self):
