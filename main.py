@@ -508,9 +508,9 @@ class Game(ShowBase):
 
         if USE_RP:
             self.nearLight.energy = 2
+            self.nearLight.setPos(self.camera.getPos(self.render))
         else:
             self.nearLight.node().setColor((1, 1, 1, 0.5))
-        self.nearLight.setPos(self.camera.getPos(self.render))
 
         self.camAnim.play("shake")
         self.enemyScream.play()
