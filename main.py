@@ -31,6 +31,7 @@ from random import choice, random
 import sys
 
 
+
 # Controls are:
 # Move around - wasd (hold shift to run)
 # Look around - with the goddamn mouse
@@ -45,12 +46,22 @@ import sys
 # 'escape' to quit
 
 
-USE_RP = False
+USE_RP = True
 
 if USE_RP:
-    pipeline_path = "/home/joey/dev/panda_3d/RenderPipeline/"
+    #pipeline_path = "/home/joey/dev/panda_3d/RenderPipeline/"
+    pipeline_path = "render_pipeline/"
     sys.path.insert(0, pipeline_path)
-    from rpcore import RenderPipeline, PointLight, SpotLight
+    if pipeline_path == "render_pipeline/":
+        from panda3d import _rplight as _
+        import socket as _
+        from rpcore import RenderPipeline, PointLight, SpotLight
+        from direct.gui.DirectCheckBox import DirectCheckBox as _
+        from direct.stdpy.file import isfile as _ # for rp
+        from datetime import datetime as _
+        # Plugins for packaging
+    else:
+        from rpcore import RenderPipeline, PointLight, SpotLight
     simplepbr = None
 else:
     from panda3d.core import PointLight, Spotlight, PerspectiveLens
@@ -89,12 +100,12 @@ class Game(ShowBase):
 
         # Load files
         self.map = self.loader.loadModel("assets/models/map.bam")
-        #self.render_pipeline.prepare_scene(self.map)
         self.map.reparentTo(self.render)
         self.showMesh(self.map)
 
         for model in self.map.findAllMatches("**/HidingPlace*"):
-            model.node().setIntoCollideMask(CollideMask.bit(0))
+            #model.node().setIntoCollideMask(CollideMask.bit(0))
+            model.node().setIntoCollideMask(CollideMask.bit(1))
 
         #self.render_pipeline.prepare_scene(self.map)
         lightPos = self.map.find("**/LightPos*").getPos()
@@ -169,7 +180,8 @@ class Game(ShowBase):
         self.playerStartPos = self.map.find("**/StartPos").getPos()
 
         # camModel is only used for camera animation. Use self.camera for camera manipulation
-        self.camAnim = Actor("assets/models/camera.glb")
+        #self.camAnim = Actor("assets/models/camera.glb")
+        self.camAnim = Actor("assets/models/camera.bam")
         self.camAnim.reparentTo(self.render)
         joint = self.camAnim.exposeJoint(None, "modelRoot", "CameraBone")
         self.camera.reparentTo(joint)
@@ -182,6 +194,9 @@ class Game(ShowBase):
         self.enemy = Actor("assets/models/enemy.bam")
         self.enemy.reparentTo(self.render)
         self.showMesh(self.enemy)
+        self.enemyColNp = self.enemy.find("**/+CollisionNode")
+
+        self.enemy.node().setIntoCollideMask(CollideMask.bit(1))
 
         self.enemyStartPos = [model.getPos() for model in self.map.findAllMatches("**/EnemyPos*")]
         self.enemy.setPos(choice(self.enemyStartPos))
@@ -189,7 +204,6 @@ class Game(ShowBase):
         self.pathfinder = PathFollower(self.enemy)
 
         self.enemyFloater = NodePath("enemyFloater")
-        self.showMesh(self.enemyFloater)
         self.enemyFloater.setScale(0.2)
         self.enemyFloater.setPos(0, 1, 3)
         self.enemyFloater.reparentTo(self.enemy)
@@ -200,16 +214,17 @@ class Game(ShowBase):
         self.backgroundMusic.setLoop(True)
 
         self.audio3d = Audio3DManager.Audio3DManager(self.sfxManagerList[0], self.camera)
+        self.audio3d.setDropOffFactor(3)
 
-        self.chasingNoise = self.audio3d.loadSfx("assets/sounds/enemy_chase.ogg")
-        self.enemyStompingNoise = self.audio3d.loadSfx("assets/sounds/enemy_stomping.ogg")
-        self.enemyFastStompingNoise = self.audio3d.loadSfx("assets/sounds/enemy_fast_stomping.ogg")
-        self.chasingNoise.setLoop(True)
-        self.enemyFastStompingNoise.setLoop(True)
-        self.enemyStompingNoise.setLoop(True)
-        self.audio3d.attachSoundToObject(self.chasingNoise, self.enemy)
-        self.audio3d.attachSoundToObject(self.enemyFastStompingNoise, self.enemy)
-        self.audio3d.attachSoundToObject(self.enemyStompingNoise, self.enemy)
+        def add3DAudioToEnemy(filename):
+            audio = self.audio3d.loadSfx(filename)
+            audio.setLoop(True)
+            self.audio3d.attachSoundToObject(audio, self.enemy)
+            return audio
+
+        self.chasingNoise = add3DAudioToEnemy("assets/sounds/enemy_chase.ogg")
+        self.enemyStompingNoise = add3DAudioToEnemy("assets/sounds/enemy_stomping.ogg")
+        self.enemyFastStompingNoise = add3DAudioToEnemy("assets/sounds/enemy_fast_stomping.ogg")
 
         self.enemyScream = self.loader.loadSfx("assets/sounds/enemy_scream.ogg")
 
@@ -283,10 +298,10 @@ class Game(ShowBase):
         self.accept("q", toggleEnemyChase)
         self.accept("t", lambda: self.teleport(choice(self.enemyStartPos)+(0, 0, CAMERA_HEIGHT)))
         self.accept("e", self.pressE)
-        def stashNp():
-            self.camColNp.stash()
-            print("stashed!")
-        self.accept("f", stashNp)
+        def stashEnemy():
+            self.enemyColNp.stash()
+            print("enemyColNp stashed!")
+        self.accept("f", stashEnemy)
         #self.accept("g", self.gameOver)
         # DEBUG
 
@@ -302,8 +317,10 @@ class Game(ShowBase):
         self.camCol = CollisionNode('player')
         self.camCol.addSolid(CollisionSphere(center=(0, 0, -2), radius=0.5))
         self.camCol.addSolid(CollisionSphere(center=(0, -0.25, 0), radius=0.5))
-        self.camCol.setFromCollideMask(CollideMask.bit(0))
-        self.camCol.setIntoCollideMask(CollideMask.bit(0))
+        #self.camCol.setFromCollideMask(CollideMask.bit(0))
+        #self.camCol.setIntoCollideMask(CollideMask.bit(0))
+        self.camCol.setFromCollideMask(CollideMask.bit(1))
+        self.camCol.setIntoCollideMask(CollideMask.bit(1))
         self.camColNp = self.camModel.attachNewNode(self.camCol)
         #self.camColNp.show()
         '''self.playerEnemyHandler = CollisionHandlerQueue()
@@ -313,22 +330,22 @@ class Game(ShowBase):
         self.pickerNode = CollisionNode('picker')
         self.pickerNode.addSolid(CollisionSegment(0, 0, 0, 0, 2.5, 0))
         #self.pickerNode.addSolid(CollisionSegment(0, 0, 0, 0, 5, 0))
-        self.pickerNode.setFromCollideMask(CollideMask.bit(0))
+        #self.pickerNode.setFromCollideMask(CollideMask.bit(0))
+        self.pickerNode.setFromCollideMask(CollideMask.bit(1))
         self.pickerNode.setIntoCollideMask(CollideMask.allOff())
         self.pickerNp = self.camera.attachNewNode(self.pickerNode)
         #self.pickerNp.show()
         self.pickerHandler = CollisionHandlerQueue()
         self.cTrav.addCollider(self.pickerNp, self.pickerHandler)
 
-        self.enemyRay = CollisionRay(0, 1, CAMERA_HEIGHT, 0, 1, 0)
-        self.enemyCol = CollisionNode('enemyRay')
-        self.enemyCol.addSolid(self.enemyRay)
-        self.enemyCol.setFromCollideMask(CollideMask.bit(0))
-        self.enemyCol.setIntoCollideMask(CollideMask.allOff())
-        self.enemyColNp = self.enemy.attachNewNode(self.enemyCol)
+        self.enemyRayNp = self.enemy.attachNewNode(CollisionNode('enemyRay'))
+        self.enemyRayNp.node().addSolid(CollisionRay(0, 1, CAMERA_HEIGHT, 0, 1, 0))
+        #self.enemyCol.setFromCollideMask(CollideMask.bit(0))
+        self.enemyRayNp.node().setFromCollideMask(CollideMask.bit(1))
+        self.enemyRayNp.node().setIntoCollideMask(CollideMask.allOff())
         #self.enemyColNp.show()
         self.enemyRayHandler = CollisionHandlerQueue()
-        self.cTrav.addCollider(self.enemyColNp, self.enemyRayHandler)
+        self.cTrav.addCollider(self.enemyRayNp, self.enemyRayHandler)
 
         '''self.enemyCol = CollisionNode('enemy')
         self.enemyCol.addSolid(CollisionSphere(center=(0, 0, 0), radius=1))
@@ -354,7 +371,8 @@ class Game(ShowBase):
         self.groundRay.setDirection(0, 0, -1)
         self.groundCol = CollisionNode('groundRay')
         self.groundCol.addSolid(self.groundRay)
-        self.groundCol.setFromCollideMask(CollideMask.bit(0))
+        #self.groundCol.setFromCollideMask(CollideMask.bit(0))
+        self.groundCol.setFromCollideMask(CollideMask.bit(1))
         self.groundCol.setIntoCollideMask(CollideMask.allOff())
         self.groundColNp = self.camModel.attachNewNode(self.groundCol)
         self.groundHandler = CollisionHandlerQueue()
@@ -603,20 +621,22 @@ class Game(ShowBase):
         self.enemy.setZ(0)
         self.enemy.setP(0)
 
-        print("enemySeesPlayer:", self.enemySeesPlayer)
-        print("enemySearching:", self.enemySearching)
-        print("enemyChasing:", self.enemyChasing)
+        #print("enemySeesPlayer:", self.enemySeesPlayer)
+        #print("enemySearching:", self.enemySearching)
+        #print("enemyChasing:", self.enemyChasing)
         
-        self.enemyColNp.lookAt(self.camModel.getPos(self.enemy) - (0, 0, 3))
+        self.enemyRayNp.lookAt(self.camModel.getPos(self.enemy) - (0, 0, 3))
         if self.enemyRayHandler.getNumEntries(): # if there are any entries
             self.enemyRayHandler.sortEntries()
             firstEntry = list(self.enemyRayHandler.entries)[0]
 
             if firstEntry.getIntoNode().name == 'player':
                 self.enemySeesPlayer = True
-                hpr = self.enemyColNp.getHpr()
+                hpr = self.enemyRayNp.getHpr()
                 if hpr < ENEMY_FOV and hpr > -ENEMY_FOV:
-                    self.enemyChasing = True
+                    if not self.isHiding:
+                        self.enemyChasing = True
+                        self.enemyColNp.unstash()
             else:
                 self.enemySeesPlayer = False
     
@@ -798,6 +818,10 @@ class Game(ShowBase):
                     pos = self.beforeHidePos
                     #self.camModel.unstash()
                     #self.camColNp.unstash()
+                    #self.enemy.node().setIntoCollideMask(CollideMask.bit(1))
+                    self.enemyColNp.unstash()
+                    #print("enemy colIntoMask to 1")
+                    #self.pusher.addCollider(self.enemy)
                     #self.pusher.addCollider(self.camColNp, self.camModel)
                 else:
                     self.beforeHidePos = self.camModel.getPos()
@@ -805,13 +829,17 @@ class Game(ShowBase):
                     #self.camModel.stash()
                     #self.camColNp.stash()
                     #print("camColNp stashed!")
+                    #self.pusher.removeCollider(self.enemy)
                     #self.pusher.removeCollider(self.camColNp)
+                    #self.enemy.node().setIntoCollideMask(CollideMask.bit(0))
+                    #print("enemy colIntoMask to 0")
 
                     if self.enemyChasing:
                         if not self.enemySeesPlayer:
                             self.goto(self.beforeHidePos)
                             self.enemySearching = True
                             self.enemyChasing = False
+                            self.enemyColNp.stash()
                     
                 self.teleport(pos)
                 self.isHiding = not self.isHiding
@@ -827,7 +855,8 @@ class Game(ShowBase):
         for node in model.findAllMatches("**/+CollisionNode"):
             parent = node.getParent()
             for geomNode in parent.findAllMatches('**/+GeomNode'):
-                geomNode.reparent_to(parent)
+                #print(geomNode)
+                geomNode.reparentTo(parent)
     
     def createCollisionMesh(self, modelRoot):
         # create a temporary copy to generate the collision meshes from
