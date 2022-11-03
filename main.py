@@ -408,7 +408,7 @@ class Game(ShowBase):
         self.start()
     
     def start(self):
-        # variables
+        # ---------- variables ----------
         self.inGame = False
         self.isGameOver = False
         if self.flashOn:
@@ -421,6 +421,7 @@ class Game(ShowBase):
         self.isMoving = False
         self.isRunning = False
         self.isHiding = False
+        self.pickingOn = None
         self.beforeHidePos = (0, 0, 0)
         self.tired = False
         self.runTimer = Timer(5)
@@ -710,24 +711,26 @@ class Game(ShowBase):
 
 
         # ---------- picker event ----------
-        if self.pickerHandler.getNumEntries(): # if there are any entries
+        if self.pickerHandler.getNumEntries() > 1: # if there are any entries
             self.pickerHandler.sortEntries()
-            for entry in self.pickerHandler.entries:
-                entryName = entry.getIntoNode().name
+            entry = self.pickerHandler.entries[1].getIntoNodePath()
+            entryName = entry.getName()
 
-                if entryName.startswith("HidingPlace") or entryName.startswith("Item"):
-                    self.cursorOffImage.hide()
-                    self.cursorOnImage.show()
-                    if entryName.startswith("HidingPlace"):
-                        if self.isHiding:
-                            self.pressEText.setText("Press 'E' to leave")
-                        else:
-                            self.pressEText.setText("Press 'E' to hide")
-                        self.pressEText.show()
-                else:
-                    self.pressEText.hide()
-                    self.cursorOnImage.hide()
-                    self.cursorOffImage.show()
+            if entryName.startswith("HidingPlace") or entryName.startswith("Item"):
+                self.cursorOffImage.hide()
+                self.cursorOnImage.show()
+                if entryName.startswith("HidingPlace"):
+                    if self.isHiding:
+                        self.pressEText.setText("Press 'E' to leave")
+                    else:
+                        self.pressEText.setText("Press 'E' to hide")
+                    self.pressEText.show()
+                self.pickingOn = entry
+            else:
+                self.pressEText.hide()
+                self.cursorOnImage.hide()
+                self.cursorOffImage.show()
+                self.pickingOn = None
         else:
             self.pressEText.hide()
             self.cursorOnImage.hide()
@@ -806,33 +809,17 @@ class Game(ShowBase):
     
     # Method that gets called every time 'E' button is pressed
     def pressE(self):
-        if not self.inGame or not self.pickerHandler.getNumEntries():
+        if not self.inGame or not self.pickingOn:
             return
 
-        self.pickerHandler.sortEntries()
-        for entry in self.pickerHandler.entries:
-            nodePath = entry.getIntoNodePath()
-        
-            if nodePath.getName().startswith("HidingPlace"):
+        if self.pickingOn:
+            if self.pickingOn.getName().startswith("HidingPlace"):
                 if self.isHiding:
                     pos = self.beforeHidePos
-                    #self.camModel.unstash()
-                    #self.camColNp.unstash()
-                    #self.enemy.node().setIntoCollideMask(CollideMask.bit(1))
                     self.enemyColNp.unstash()
-                    #print("enemy colIntoMask to 1")
-                    #self.pusher.addCollider(self.enemy)
-                    #self.pusher.addCollider(self.camColNp, self.camModel)
                 else:
                     self.beforeHidePos = self.camModel.getPos()
-                    pos = nodePath.getPos(self.render)
-                    #self.camModel.stash()
-                    #self.camColNp.stash()
-                    #print("camColNp stashed!")
-                    #self.pusher.removeCollider(self.enemy)
-                    #self.pusher.removeCollider(self.camColNp)
-                    #self.enemy.node().setIntoCollideMask(CollideMask.bit(0))
-                    #print("enemy colIntoMask to 0")
+                    pos = self.pickingOn.getPos(self.render)
 
                     if self.enemyChasing:
                         if not self.enemySeesPlayer:
@@ -848,7 +835,7 @@ class Game(ShowBase):
                 else:
                     self.pressEText.setText("Press 'E' to hide")
 
-            elif nodePath.getName().startswith("Item"):
+            elif self.pickingOn.getName().startswith("Item"):
                 pass
     
     def showMesh(self, model):
