@@ -193,6 +193,8 @@ class Game(ShowBase):
 
         self.enemy = Actor("assets/models/enemy.bam")
         self.enemy.reparentTo(self.render)
+        self.enemyWalkAnim = self.enemy.getAnimControl("walk")
+        self.enemyRunAnim = self.enemy.getAnimControl("run")
         self.showMesh(self.enemy)
         self.enemyColNp = self.enemy.find("**/+CollisionNode")
 
@@ -301,7 +303,7 @@ class Game(ShowBase):
         def stashEnemy():
             self.enemyColNp.stash()
             print("enemyColNp stashed!")
-        self.accept("f", stashEnemy)
+        #self.accept("f", stashEnemy)
         #self.accept("g", self.gameOver)
         # DEBUG
 
@@ -442,6 +444,8 @@ class Game(ShowBase):
             'shift': False,
         }
 
+        self.enemyWalkAnim.loop("walk")
+
         self.backgroundMusic.play()
 
         self.cursorOffImage.show()
@@ -576,6 +580,10 @@ class Game(ShowBase):
                 self.enemyFastStompingNoise.play()
             if self.enemyStompingNoise.status() == self.enemyStompingNoise.PLAYING:
                 self.enemyStompingNoise.stop()
+
+            if self.enemyWalkAnim.isPlaying():
+                self.enemyRunAnim.loop("run")
+
             self.pathfinder.move_speed = ENEMY_SPEED * 2
             try:
                 if self._enemyChasing != self.enemyChasing:
@@ -603,6 +611,10 @@ class Game(ShowBase):
                 self.enemyFastStompingNoise.stop()
             if self.enemyStompingNoise.status() != self.enemyStompingNoise.PLAYING:
                 self.enemyStompingNoise.play()
+
+            if self.enemyRunAnim.isPlaying():
+                self.enemyWalkAnim.loop("walk")
+            
             self.pathfinder.move_speed = ENEMY_SPEED
             try:
                 if self._enemyChasing != self.enemyChasing:
