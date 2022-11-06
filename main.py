@@ -72,6 +72,7 @@ PLAYER_SPEED = 4
 ENEMY_SPEED = 5
 ENEMY_FOV = 70
 CAMERA_HEIGHT = 3
+CAMERA_FOV = 90
 
 class Game(ShowBase):
     def __init__(self):
@@ -313,7 +314,7 @@ class Game(ShowBase):
         #self.cTrav.showCollisions(self.render)
         ################################################################
         self.camLens.setNear(0.1)
-        self.camLens.setFov(90)
+        self.camLens.setFov(CAMERA_FOV)
         ################################################################
 
         self.camCol = CollisionNode('player')
@@ -747,6 +748,7 @@ class Game(ShowBase):
             self.pressEText.hide()
             self.cursorOnImage.hide()
             self.cursorOffImage.show()
+            self.pickingOn = None
         
         '''# ---------- player and enemy event ----------
         if self.playerEnemyHandler.getNumEntries():
