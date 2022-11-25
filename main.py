@@ -424,6 +424,7 @@ class Game(ShowBase):
         self.isMoving = False
         self.isRunning = False
         self.isHiding = False
+        self.hidePosInterval = None
         self.pickingOn = None
         self.beforeHidePos = (0, 0, 0)
         self.tired = False
@@ -477,6 +478,7 @@ class Game(ShowBase):
         )
 
         posInterval.start()
+        return posInterval
     
     def goto(self, pos):
         self.pathfinder.follow_path(
@@ -825,6 +827,8 @@ class Game(ShowBase):
     def pressE(self):
         if not self.inGame or not self.pickingOn:
             return
+        if self.hidePosInterval and self.hidePosInterval.isPlaying():
+            return
 
         if self.pickingOn:
             if self.pickingOn.getName().startswith("HidingPlace"):
@@ -842,7 +846,7 @@ class Game(ShowBase):
                             self.enemyChasing = False
                             self.enemyColNp.stash()
                     
-                self.teleport(pos)
+                self.hidePosInterval = self.teleport(pos)
                 self.isHiding = not self.isHiding
                 if self.isHiding:
                     self.pressEText.setText("Press 'E' to leave")
