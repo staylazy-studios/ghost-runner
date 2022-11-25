@@ -1,19 +1,15 @@
 from setuptools import setup
 
 setup(
-    name = "Ghost Runner (not ready for production)",
+    name = "Ghost Runner (not ready for production) no_RP",
     options = {
         "build_apps": {
             "gui_apps": {
                 "ghost-runner": "main.py"
             },
             "include_patterns": [
-                "assets/models/*.bam",
-                "assets/models/textures/*",
-                "assets/sounds/*",
-                "assets/gui/*",
-                "*.txt",
-                "render_pipeline/**/*"
+                "assets/**/*",
+                "*.txt"
             ],
             "plugins": [
                 "pandagl",
