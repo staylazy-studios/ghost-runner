@@ -37,7 +37,6 @@ import sys
 # Look around - with the goddamn mouse
 # Turn flash light on - right click
 # Hide/interact with objects - e
-# red dude is the enemy
 # Also some extra DEBUG controls are:
 # 't' to teleport to a random enemy spawn point
 # 'q' to make enemy chase you
@@ -91,7 +90,7 @@ class Game(ShowBase):
             self.setBackgroundColor(0, 0, 0, 0)
             self.pipeline = simplepbr.init()
 
-        
+
         self.disableMouse()
         #self.pipeline = simplepbr.init()
         #self.render.setShaderAuto()
@@ -103,6 +102,7 @@ class Game(ShowBase):
         self.map = self.loader.loadModel("assets/models/map.bam")
         self.map.reparentTo(self.render)
         self.showMesh(self.map)
+        #print(self.map.ls())
 
         for model in self.map.findAllMatches("**/HidingPlace*"):
             #model.node().setIntoCollideMask(CollideMask.bit(0))
@@ -217,7 +217,7 @@ class Game(ShowBase):
         self.backgroundMusic.setLoop(True)
 
         self.audio3d = Audio3DManager.Audio3DManager(self.sfxManagerList[0], self.camera)
-        self.audio3d.setDropOffFactor(3)
+        self.audio3d.setDropOffFactor(2)
 
         def add3DAudioToEnemy(filename):
             audio = self.audio3d.loadSfx(filename)
@@ -274,6 +274,38 @@ class Game(ShowBase):
         #self.AIbehaviors.pursue(self.camModel)
 
         # panda3d AI'''
+
+        radio = self.map.find("**/ItemRadio")
+        radio.hide()
+        self.radio = Actor("assets/models/radio.glb")
+        self.radio.setPos(radio.getPos(self.render))
+        self.radio.reparentTo(self.render)
+        self.radio = Radio(self.radio, "Key 1")
+
+        ballPos = [axis.getPos() for axis in self.map.findAllMatches("**/BallPos*")]
+        self.MAX_ITEMS = len(ballPos)
+        #print(ballPos, len(ballPos))
+        ballModel = self.map.find("**/ItemBall")
+        self.items = []
+        for pos in ballPos:
+            _ball = ballModel.copyTo(self.map)
+            _name = f"{_ball.getName()}_{pos}"
+            _ball.setName(_name)
+            _ball.setPos(pos)
+            self.items.append(_name)
+        ballModel.removeNode()
+
+        drawer = self.map.find("**/ItemDrawer")
+        drawer.hide()
+        self.drawer = Actor("assets/models/drawer.glb")
+        self.drawer.setHpr(drawer.getHpr(self.render))
+        self.drawer.setPos(drawer.getPos(self.render))
+        self.drawer.reparentTo(self.render)
+        self.drawer = Drawer(self.drawer, "Key 1")
+
+        #self.items = [np.getName() for np in self.map.findAllMatches("**/ItemBall*")]
+        #self.items = [1, 2, 3, 4, 5]
+        #print(self.items)
 
 
         self.mouseWatcherNode.set_modifier_buttons(ModifierButtons())
@@ -395,6 +427,9 @@ class Game(ShowBase):
         
         self.pressEText = OnscreenText(text="", pos=(0, -0.1, 0), fg=(1, 1, 1, 1), parent=self.aspect2d)
         self.pressEText.hide()
+        
+        # ---------- Item Count ----------
+        self.itemCountText = OnscreenText(text=f"0/{self.MAX_ITEMS} Items", scale=0.1, pos=(1.5, 0.9, 0), fg=(1, 1, 1, 1), parent=self.aspect2d)
 
         #self.camColNp.show()
         #self.groundColNp.show()
@@ -491,6 +526,8 @@ class Game(ShowBase):
         
         self.playerMovement()
         self.enemyMovement()
+
+        self.itemCountText.text = f"{self.MAX_ITEMS-len(self.items)}/{self.MAX_ITEMS} Items"
 
         '''if random() < 0.00_001: # 0.001% chance of playing every frame
             if self.backgroundMusic.status() != self.backgroundMusic.PLAYING:
@@ -739,7 +776,14 @@ class Game(ShowBase):
                         self.pressEText.setText("Press 'E' to leave")
                     else:
                         self.pressEText.setText("Press 'E' to hide")
-                    self.pressEText.show()
+                # EASTER EGG
+                elif entryName.startswith("ItemRadio"):
+                    self.pressEText.setText("Press 'E' to play")
+                elif entryName.startswith("ItemDrawer"):
+                    self.pressEText.setText("Press 'E' to open")
+                else: # if entryName.startswith("Item"):
+                    self.pressEText.setText("Press 'E' to collect item")
+                self.pressEText.show()
                 self.pickingOn = entry
             else:
                 self.pressEText.hide()
@@ -831,7 +875,8 @@ class Game(ShowBase):
             return
 
         if self.pickingOn:
-            if self.pickingOn.getName().startswith("HidingPlace"):
+            colName = self.pickingOn.getName()
+            if colName.startswith("HidingPlace"):
                 if self.isHiding:
                     pos = self.beforeHidePos
                     self.enemyColNp.unstash()
@@ -853,8 +898,15 @@ class Game(ShowBase):
                 else:
                     self.pressEText.setText("Press 'E' to hide")
 
-            elif self.pickingOn.getName().startswith("Item"):
-                pass
+            elif colName.startswith("Item"):
+                if colName == "ItemRadio":
+                    self.radio.toggle()
+                elif colName == "ItemDrawer":
+                    self.drawer.toggle()
+                elif colName.startswith("ItemBall"):
+                    ball = self.map.find("**/"+colName+"_"+str(self.pickingOn.getPos(self.render)))
+                    self.items.remove(ball.getName())
+                    ball.removeNode()
     
     def showMesh(self, model):
         for node in model.findAllMatches("**/+CollisionNode"):
