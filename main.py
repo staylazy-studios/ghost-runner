@@ -275,12 +275,6 @@ class Game(ShowBase):
 
         # panda3d AI'''
 
-        radio = self.map.find("**/ItemRadio")
-        radio.hide()
-        self.radio = Actor("assets/models/radio.glb")
-        self.radio.setPos(radio.getPos(self.render))
-        self.radio.reparentTo(self.render)
-        self.radio = Radio(self.radio, "Key 1")
 
         ballPos = [axis.getPos() for axis in self.map.findAllMatches("**/BallPos*")]
         self.MAX_ITEMS = len(ballPos)
@@ -777,8 +771,6 @@ class Game(ShowBase):
                     else:
                         self.pressEText.setText("Press 'E' to hide")
                 # EASTER EGG
-                elif entryName.startswith("ItemRadio"):
-                    self.pressEText.setText("Press 'E' to play")
                 elif entryName.startswith("ItemDrawer"):
                     self.pressEText.setText("Press 'E' to open")
                 else: # if entryName.startswith("Item"):
@@ -899,9 +891,7 @@ class Game(ShowBase):
                     self.pressEText.setText("Press 'E' to hide")
 
             elif colName.startswith("Item"):
-                if colName == "ItemRadio":
-                    self.radio.toggle()
-                elif colName == "ItemDrawer":
+                if colName == "ItemDrawer":
                     self.drawer.toggle()
                 elif colName.startswith("ItemBall"):
                     ball = self.map.find("**/"+colName+"_"+str(self.pickingOn.getPos(self.render)))
